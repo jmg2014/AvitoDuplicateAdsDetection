@@ -1,0 +1,96 @@
+---
+title: "Avito Duplicate Ads Detection"
+
+---
+
+##First approach using logistic regression, features: title,price and description.
+
+```{r}
+library(data.table)
+library(readr)
+library(stringdist)
+```
+
+##Loading data
+
+```{r}
+train <- read_csv("data/ItemInfo_train.csv")
+test <- read_csv("data/ItemInfo_test.csv")
+trainItem <- read_csv("data/ItemPairs_train.csv")
+testItem <- read_csv("data/ItemPairs_test.csv")
+trainItem <- data.table(trainItem)
+testItem <- data.table(testItem)
+```
+
+##Merging and removing fetaures (train)
+```{r}
+train <- train[,c("itemID","categoryID","locationID","lat","lon","title","description","price")]
+names(train) <- c("itemID_1","categoryID1","locationID1","lat1","lon1","title1","description1","price1")
+train <- data.table(train)
+setkey(train,"itemID_1")
+setkey(trainItem,"itemID_1")
+
+trainItem <- merge(trainItem,train,all.x=TRUE)
+names(train) <- c("itemID_2","categoryID2","locationID2","lat2","lon2","title2","description2","price2")
+setkey(train,"itemID_2")
+setkey(trainItem,"itemID_2")
+
+trainItem <- merge(trainItem,train,all.x=TRUE)
+
+```
+
+
+##Merging and removing features (test)
+```{r}
+test <- test[,c("itemID","categoryID","locationID","lat","lon","title","description","price")]
+names(test) <- c("itemID_1","categoryID1","locationID1","lat1","lon1","title1","description1","price1")
+test <- data.table(test)
+setkey(test,"itemID_1")
+setkey(testItem,"itemID_1")
+
+testItem <- merge(testItem,test,all.x=TRUE)
+
+names(test) <- c("itemID_2","categoryID2","locationID2","lat2","lon2","title2","description2","price2")
+
+setkey(test,"itemID_2")
+setkey(testItem,"itemID_2")
+
+testItem <- merge(testItem,test,all.x=TRUE)
+```
+
+
+##Adding features
+```{r}
+#PRICE
+trainItem$priceDiff <- (trainItem$price1 - trainItem$price2)                                
+#TITLE
+trainItem$sameT<-stringdist(a = trainItem$title1, b = trainItem$title2, method = "jw")      
+#DESCRIPTION
+trainItem$sameD<-stringdist(a = trainItem$description1, b = trainItem$description2, method = "jw")
+
+
+testItem$priceDiff <- (testItem$price1 - testItem$price2)
+testItem$sameT<-stringdist(a = testItem$title1, b = testItem$title2, method = "jw")
+testItem$sameD<-stringdist(a = testItem$description1, b = testItem$description2, method = "jw")
+
+
+trainItem[is.na(trainItem)] <- -9999
+testItem[is.na(testItem)] <- -9999
+```
+
+##Running the model
+```{r}
+features <- c("priceDiff","sameT","sameD")
+train.kaggle <- trainItem[,features,with=FALSE]
+test.kaggle <- testItem[,features,with=FALSE]
+response <- trainItem$isDuplicate
+
+model <- glm(response ~ .,data=train.kaggle,family="binomial")
+pred <- predict(model,test.kaggle,type="response")
+kaggle <- data.frame(id=testItem$id,probability=pred)
+```
+
+#Generate the file
+```{r}
+write.csv(kaggle,file="submission_01.csv",row.names=FALSE)
+```
